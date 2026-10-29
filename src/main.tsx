@@ -1,16 +1,13 @@
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
-import { i18nReady } from "./i18n";
-import { logStartupEvent } from "./lib/tauri";
-import "./index.css";
-import App from "./App.tsx";
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { App } from './App';
+import { FeedbackProvider } from './components/FeedbackSystem';
+import './index.css';
 
-await i18nReady;
-logStartupEvent("i18n_ready", performance.now()).catch(() => {});
-
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <FeedbackProvider>
+      <App />
+    </FeedbackProvider>
+  </React.StrictMode>
 );
-logStartupEvent("root_rendered", performance.now()).catch(() => {});

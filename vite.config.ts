@@ -1,19 +1,24 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
+// Pure Local / Offline Vite Configuration
+// Binds strictly to 127.0.0.1 and proxies /api to the local Node.js service
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
-    host: "127.0.0.1",
-    port: 1420,
-    strictPort: true,
-    watch: {
-      ignored: ["**/src-tauri/target/**"],
+    host: '127.0.0.1',
+    port: 5173,
+    strictPort: false,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:3847',
+        changeOrigin: false,
+      },
     },
   },
-  preview: {
-    host: "127.0.0.1",
-    port: 1420,
-    strictPort: true,
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
   },
 });
