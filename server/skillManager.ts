@@ -213,7 +213,7 @@ export class SkillManager {
 
     this.removeTargetIfExists(targetPath, centralSkillPath);
 
-    let usedMode: 'symlink' | 'junction' | 'copy' = 'copy';
+    let usedMode: 'symlink' | 'junction' | 'copy';
     if (syncMode === 'symlink') {
       try {
         const symlinkType = process.platform === 'win32' ? 'junction' : 'dir';

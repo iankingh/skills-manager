@@ -1,6 +1,6 @@
 import type { IncomingHttpHeaders } from 'node:http';
 
-const LOOPBACK_HOST = /^(?:127\.0\.0\.1|localhost)(?::\d{1,5})?$/i;
+const LOOPBACK_HOST = /^(?:(?:127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?|::1)$/i;
 
 /** Stop browser pages and DNS rebinding hosts from reaching the local file API. */
 export function isTrustedLocalRequest(headers: IncomingHttpHeaders): boolean {

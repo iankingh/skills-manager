@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import type { Response } from 'express';
 import {
   AgentConfig,
@@ -399,7 +399,7 @@ export class McpManager {
       try {
         JSON.parse(content);
       } catch (e: any) {
-        throw new Error(`JSON 格式驗證失敗：${e.message}`);
+        throw new Error(`JSON 格式驗證失敗：${e.message}`, { cause: e });
       }
     }
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -487,7 +487,7 @@ export class McpManager {
       `attachment; filename="${encodeURIComponent(zipFilename)}"`
     );
 
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
     archive.pipe(res);
     archive.append(JSON.stringify({ mcpServers: mcpServersObj }, null, 2), {
       name: 'mcp-config.json',

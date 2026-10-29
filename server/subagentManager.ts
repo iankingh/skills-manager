@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import YAML from 'yaml';
 import AdmZip from 'adm-zip';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import type { Response } from 'express';
 import {
   AgentConfig,
@@ -588,7 +588,7 @@ ${
       `attachment; filename="${encodeURIComponent(zipFilename)}"`
     );
 
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
     archive.pipe(res);
 
     for (const item of targets) {

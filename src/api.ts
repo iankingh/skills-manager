@@ -26,7 +26,8 @@ async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
   } catch (networkErr: any) {
     if (networkErr?.name === 'AbortError') throw networkErr;
     throw new Error(
-      `無法連線至本機 Node.js 服務 (127.0.0.1:3847)。請確認後端服務是否正在執行中。(${networkErr?.message || 'Network Error'})`
+      `無法連線至本機 Node.js 服務 (127.0.0.1:3847)。請確認後端服務是否正在執行中。(${networkErr?.message || 'Network Error'})`,
+      { cause: networkErr }
     );
   }
 
@@ -53,7 +54,8 @@ async function downloadZipFromEndpoint(
     res = await fetch(url, options);
   } catch (networkErr: any) {
     throw new Error(
-      `下載 ZIP 失敗：無法連線至本機 Node.js 服務 (${networkErr?.message || 'Network Error'})`
+      `下載 ZIP 失敗：無法連線至本機 Node.js 服務 (${networkErr?.message || 'Network Error'})`,
+      { cause: networkErr }
     );
   }
 

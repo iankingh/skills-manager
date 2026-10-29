@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import AdmZip from 'adm-zip';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import type { Response } from 'express';
 import { BackupSnapshot, SkillRecord } from './types.js';
 import { LocalStore, parseSkillMarkdownMeta } from './store.js';
@@ -311,7 +311,7 @@ export class ZipAndFolderService {
       `attachment; filename="${encodeURIComponent(zipFilename)}"`
     );
 
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
     archive.pipe(res);
 
     for (const id of validIds) {

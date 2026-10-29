@@ -1,6 +1,6 @@
 # Skills & Agents & MCP Manager — React 前端 + Node.js 本機服務 + System Tray（本機離線優先版）
 
-本專案是 [`xingkongliang/skills-manager`](https://github.com/xingkongliang/skills-manager) 的非官方修改版，以 `skills-manager-node-tray-offline` 為主要實作。架構為 **React 19 前端 + Node.js (Express 5) 本機服務 + System Tray 系統常駐列**，獨立管理 **AI Skills**、**AI Agents (Subagents)** 與 **MCP (Model Context Protocol)**。管理介面與服務綁定在本機，不呼叫原版的更新服務或 GitHub 備份；使用者自行設定的 MCP 命令或端點仍可能連線到外部服務。
+本專案是 [`xingkongliang/skills-manager`](https://github.com/xingkongliang/skills-manager) 的非官方修改版，套件名稱為 `skills-manager`。架構為 **React 19 前端 + Node.js (Express 5) 本機服務 + System Tray 系統常駐列**，獨立管理 **AI Skills**、**AI Agents (Subagents)** 與 **MCP (Model Context Protocol)**。管理介面與服務綁定在本機，不呼叫原版的更新服務或 GitHub 備份；使用者自行設定的 MCP 命令或端點仍可能連線到外部服務。
 
 ---
 
@@ -33,6 +33,8 @@
 
 ## 快速開始 (Getting Started)
 
+建議使用 Node.js 22.13 以上的 22.x 版本或 Node.js 24 以上；亦支援 Node.js 20.19 以上的 20.x 版本。
+
 ```bash
 git clone https://github.com/iankingh/skills-manager.git
 cd skills-manager
@@ -41,6 +43,18 @@ npm run dev
 ```
 
 開發模式請在瀏覽器開啟 `http://127.0.0.1:5173`。正式執行可用 `npm run build && npm start`，再開啟 `http://127.0.0.1:3847`；系統匣依設定啟用。首次安裝 npm 相依套件需要取得套件，之後管理功能可在本機使用。
+
+服務與開發伺服器目前都只監聽 IPv4 loopback (`127.0.0.1`)；IPv6 loopback 標頭的驗證相容性不代表已提供 `[::1]` 監聽。
+
+## 開發驗證
+
+```bash
+npm test
+npm run lint
+npm run build
+```
+
+GitHub Actions 會在推送至 `main` 或建立目標為 `main` 的 Pull Request 時，使用 Node.js 22 在 Ubuntu、macOS 與 Windows 執行乾淨安裝及以上檢查。ZIP 匯出採用 Archiver 8；Lint 採用 ESLint 10，並保留既有的 React Hooks 規則範圍。
 
 ## 授權與來源
 
