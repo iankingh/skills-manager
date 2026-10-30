@@ -11,8 +11,11 @@ import {
   Preset,
 } from './types.js';
 import { BUILTIN_AGENTS, expandHomePath } from './agentRegistry.js';
+import { resolveSeedDirectory } from './envConfig.js';
 
-const DEFAULT_BASE_DIR = path.join(os.homedir(), '.skills-manager');
+const DEFAULT_BASE_DIR = process.env.SKILLS_MANAGER_BASE_DIR?.trim()
+  ? expandHomePath(process.env.SKILLS_MANAGER_BASE_DIR.trim())
+  : path.join(os.homedir(), '.skills-manager');
 const BOOTSTRAP_CONFIG_PATH = path.join(DEFAULT_BASE_DIR, 'repo-config.json');
 
 const IGNORED_DIRS = new Set([
@@ -160,161 +163,197 @@ export class LocalStore {
     }
   }
 
-  private ensureSeedSkill(): void {
+  public syncProjectSeeds(overwrite = false): {
+    addedSkills: number;
+    addedSubagents: number;
+    addedMcp: number;
+  } {
+    const addedSkills = this.ensureSeedSkill(overwrite);
+    const addedSubagents = this.ensureSeedSubagents(overwrite);
+    const addedMcp = this.ensureSeedMcpServers(overwrite);
+    if (addedSkills > 0 || addedSubagents > 0 || addedMcp > 0) {
+      this.addActivityLog(
+        'settings',
+        `已從專案範例資料夾 (./skills, ./agents, ./mcp) 同步載入：新增 ${addedSkills} 個技能、${addedSubagents} 個 Agent、${addedMcp} 個 MCP`
+      );
+    }
+    return { addedSkills, addedSubagents, addedMcp };
+  }
+
+  private ensureSeedSkill(overwrite = false): number {
     const skillsDir = this.getSkillsDir();
-    const entries = fs.existsSync(skillsDir) ? fs.readdirSync(skillsDir) : [];
-    if (entries.length > 0) return;
-
-    const sample1Dir = path.join(skillsDir, 'code-review-pro');
-    fs.mkdirSync(sample1Dir, { recursive: true });
-    fs.writeFileSync(
-      path.join(sample1Dir, 'SKILL.md'),
-      `---
-name: code-review-pro
-description: 離線專業程式碼審查與重構建議規範，檢查型別安全、邊界條件、效能瓶頸與安全性漏洞。
----
-# Code Review Pro (本機離線規範)
-
-當執行程式碼審查 (Code Review) 時，請依序檢查以下核心面向：
-
-1. **邊界條件與錯誤處理**：確認空值 (null/undefined)、空陣列、非預期輸入皆有防禦性處理。
-2. **安全性檢查**：禁止路徑穿越 (Path Traversal)、SQL/指令注入與硬編碼密鑰。
-3. **可讀性與模組化**：函式職責單一，命名清晰，並維持一致的型別定義。
-`,
-      'utf-8'
-    );
-
-    const sample2Dir = path.join(skillsDir, 'offline-architecture-guide');
-    fs.mkdirSync(sample2Dir, { recursive: true });
-    fs.writeFileSync(
-      path.join(sample2Dir, 'SKILL.md'),
-      `---
-name: offline-architecture-guide
-description: 100% 離線優先 (Offline-First) 系統架構設計指南，確保零外網依賴、本機資料持久化與隱私安全。
----
-# Offline-First Architecture Guide
-
-本技能提供離線優先應用程式的設計準則：
-
-- **零外部網路請求**：所有靜態資源、圖示、字型與樣式均打包於本機。
-- **本機資料主權**：設定檔與技能庫儲存於使用者個人目錄 (\`~/.skills-manager\`)，支援隨時匯出與匯入標準 ZIP 壓縮檔。
-- **跨工具無縫同步**：透過 Symlink / Junction 或實體複製將技能部署至 GitHub Copilot、Claude Code、OpenAI Codex 等工具的個人資料夾。
-`,
-      'utf-8'
-    );
+    fs.mkdirSync(skillsDir, { recursive: true });
 
     const now = new Date().toISOString();
-    this.data.skills['code-review-pro'] = {
-      id: 'code-review-pro',
-      name: 'code-review-pro',
-      description: '離線專業程式碼審查與重構建議規範，檢查型別安全、邊界條件、效能瓶頸與安全性漏洞。',
-      sourceType: 'manual',
-      sourceLabel: '內建範例技能',
-      tags: ['review', 'quality', 'security'],
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.data.skills['offline-architecture-guide'] = {
-      id: 'offline-architecture-guide',
-      name: 'offline-architecture-guide',
-      description: '100% 離線優先 (Offline-First) 系統架構設計指南，確保零外網依賴、本機資料持久化與隱私安全。',
-      sourceType: 'manual',
-      sourceLabel: '內建範例技能',
-      tags: ['architecture', 'offline'],
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.save();
+    const seedSkillsDir = resolveSeedDirectory('SKILLS_SEED_DIR', './skills');
+    let added = 0;
+
+    if (fs.existsSync(seedSkillsDir)) {
+      for (const entry of fs.readdirSync(seedSkillsDir, { withFileTypes: true })) {
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+        const srcDir = path.join(seedSkillsDir, entry.name);
+        const destDir = path.join(skillsDir, entry.name);
+        if (fs.existsSync(destDir) && !overwrite) {
+          if (!this.data.skills[entry.name]) {
+            const meta = parseSkillMarkdownMeta(destDir);
+            this.data.skills[entry.name] = {
+              id: entry.name,
+              name: meta.name || entry.name,
+              description: meta.description,
+              sourceType: 'manual',
+              sourceLabel: '專案 skills/ 範例技能',
+              tags: ['example', 'skill'],
+              createdAt: now,
+              updatedAt: now,
+            };
+            added += 1;
+          }
+          continue;
+        }
+        fs.cpSync(srcDir, destDir, { recursive: true });
+        const meta = parseSkillMarkdownMeta(destDir);
+        this.data.skills[entry.name] = {
+          id: entry.name,
+          name: meta.name || entry.name,
+          description: meta.description,
+          sourceType: 'manual',
+          sourceLabel: '專案 skills/ 範例技能',
+          tags: ['example', 'skill'],
+          createdAt: this.data.skills[entry.name]?.createdAt || now,
+          updatedAt: now,
+        };
+        added += 1;
+      }
+      if (added > 0) this.save();
+    }
+    return added;
   }
 
-  private ensureSeedSubagents(): void {
+  private ensureSeedSubagents(overwrite = false): number {
     const agentsDir = this.getSubagentsDir();
-    const entries = fs.existsSync(agentsDir) ? fs.readdirSync(agentsDir) : [];
-    if (entries.length > 0) return;
+    fs.mkdirSync(agentsDir, { recursive: true });
 
     const now = new Date().toISOString();
-    const agent1Md = `---
-name: security-auditor
-description: 專責資安稽核與弱點掃描的 AI Subagent，自動檢視認證流程、輸入驗證、相依套件與檔案存取權限。
-tools: ["Read", "Grep", "Glob", "Bash"]
----
-# Security Auditor Agent (資安稽核專家代理)
+    const seedAgentsDir = resolveSeedDirectory('AGENTS_SEED_DIR', './agents');
+    let added = 0;
 
-你是一位專注於應用程式安全的資深資安架構師 Agent。當被委派任務時：
-1. 優先檢視所有外部輸入端點、檔案上傳與路徑拼接邏輯。
-2. 檢查是否存在 Path Traversal、Command Injection、XSS 或未授權存取風險。
-3. 輸出結構化的「風險等級 / 問題位置 / 修復建議程式碼」報告。
-`;
-    fs.writeFileSync(path.join(agentsDir, 'security-auditor.md'), agent1Md, 'utf-8');
-
-    const agent2Md = `---
-name: system-architect
-description: 專責系統架構規劃、模組拆分與效能調校的 AI Subagent，負責在動工前產出清晰的技術設計藍圖。
-tools: ["Read", "Grep", "Glob"]
----
-# System Architect Agent (系統架構師代理)
-
-你是一位負責大型系統重構與架構設計的專家 Agent：
-1. 分析現有專案的資料流、模組耦合度與時間複雜度瓶頸。
-2. 提出最小變動且高擴充性的介面設計與型別定義。
-`;
-    fs.writeFileSync(path.join(agentsDir, 'system-architect.md'), agent2Md, 'utf-8');
-
-    this.data.subagents['security-auditor'] = {
-      id: 'security-auditor',
-      name: 'security-auditor',
-      description: '專責資安稽核與弱點掃描的 AI Subagent，自動檢視認證流程、輸入驗證、相依套件與檔案存取權限。',
-      tools: ['Read', 'Grep', 'Glob', 'Bash'],
-      fileName: 'security-auditor.md',
-      sourceType: 'manual',
-      sourceLabel: '內建範例 AI Agent',
-      tags: ['security', 'audit', 'subagent'],
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.data.subagents['system-architect'] = {
-      id: 'system-architect',
-      name: 'system-architect',
-      description: '專責系統架構規劃、模組拆分與效能調校的 AI Subagent，負責在動工前產出清晰的技術設計藍圖。',
-      tools: ['Read', 'Grep', 'Glob'],
-      fileName: 'system-architect.md',
-      sourceType: 'manual',
-      sourceLabel: '內建範例 AI Agent',
-      tags: ['architecture', 'planning', 'subagent'],
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.save();
+    if (fs.existsSync(seedAgentsDir)) {
+      for (const entry of fs.readdirSync(seedAgentsDir, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+        const id = entry.name.replace(/\.md$/i, '');
+        const srcFile = path.join(seedAgentsDir, entry.name);
+        const destFile = path.join(agentsDir, entry.name);
+        if (fs.existsSync(destFile) && !overwrite) {
+          if (!this.data.subagents[id]) {
+            const content = fs.readFileSync(destFile, 'utf-8');
+            this.registerSeedSubagentMeta(id, entry.name, content, now);
+            added += 1;
+          }
+          continue;
+        }
+        fs.copyFileSync(srcFile, destFile);
+        const content = fs.readFileSync(destFile, 'utf-8');
+        this.registerSeedSubagentMeta(id, entry.name, content, now);
+        added += 1;
+      }
+      if (added > 0) this.save();
+    }
+    return added;
   }
 
-  private ensureSeedMcpServers(): void {
-    if (Object.keys(this.data.mcpServers).length > 0) return;
+  private registerSeedSubagentMeta(id: string, fileName: string, content: string, now: string): void {
+    let name = id;
+    let description = '內建範例 AI Subagent';
+    let tools: string[] = ['Read', 'Grep', 'Glob'];
+    let tags: string[] = ['subagent'];
+
+    const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (fmMatch) {
+      try {
+        const parsed = YAML.parse(fmMatch[1]) as Record<string, any>;
+        if (typeof parsed?.name === 'string') name = parsed.name;
+        if (typeof parsed?.description === 'string') description = parsed.description;
+        if (Array.isArray(parsed?.tools)) tools = parsed.tools.map(String);
+        if (Array.isArray(parsed?.tags)) tags = parsed.tags.map(String);
+      } catch {
+        // Fallback to defaults
+      }
+    }
+
+    this.data.subagents[id] = {
+      id,
+      name,
+      description,
+      tools,
+      fileName,
+      sourceType: 'manual',
+      sourceLabel: '專案 agents/ 範例代理',
+      tags,
+      createdAt: this.data.subagents[id]?.createdAt || now,
+      updatedAt: now,
+    };
+  }
+
+  private ensureSeedMcpServers(overwrite = false): number {
     const now = new Date().toISOString();
-    this.data.mcpServers['filesystem-local'] = {
-      id: 'filesystem-local',
-      name: '本機檔案系統 MCP (Filesystem)',
-      description: '提供本機指定工作目錄的安全檔案讀寫與搜尋能力 (Stdio 本機程序)',
-      transport: 'stdio',
-      command: 'npx',
-      args: ['-y', '@modelcontextprotocol/server-filesystem', os.homedir()],
-      env: {},
-      tags: ['filesystem', 'local', 'stdio'],
-      createdAt: now,
-      updatedAt: now,
+    const seedMcpDir = resolveSeedDirectory('MCP_SEED_DIR', './mcp');
+    let added = 0;
+
+    const expandEnvAndHome = (val: string): string => {
+      const withEnv = val.replace(/\$\{([A-Za-z0-9_]+)\}/g, (_, k) => process.env[k] || '');
+      if (withEnv === '~' || withEnv.startsWith('~/')) {
+        return expandHomePath(withEnv);
+      }
+      return withEnv;
     };
-    this.data.mcpServers['sqlite-local'] = {
-      id: 'sqlite-local',
-      name: '本機 SQLite 資料庫 MCP',
-      description: '提供本機 SQLite 資料庫結構查詢與離線資料分析能力',
-      transport: 'stdio',
-      command: 'npx',
-      args: ['-y', '@modelcontextprotocol/server-sqlite', '--db-path', path.join(os.homedir(), 'local.db')],
-      env: {},
-      tags: ['database', 'sqlite', 'stdio'],
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.save();
+
+    if (fs.existsSync(seedMcpDir)) {
+      for (const entry of fs.readdirSync(seedMcpDir, { withFileTypes: true })) {
+        if (
+          !entry.isFile() ||
+          !entry.name.endsWith('.json') ||
+          entry.name.endsWith('.example.json')
+        ) {
+          continue;
+        }
+        try {
+          const raw = JSON.parse(
+            fs.readFileSync(path.join(seedMcpDir, entry.name), 'utf-8')
+          );
+          if (!raw || typeof raw !== 'object' || !raw.id) continue;
+          const id = String(raw.id);
+          if (this.data.mcpServers[id] && !overwrite) continue;
+
+          const args = Array.isArray(raw.args)
+            ? raw.args.map((a: any) => expandEnvAndHome(String(a)))
+            : [];
+          const envObj: Record<string, string> = {};
+          if (raw.env && typeof raw.env === 'object') {
+            for (const [k, v] of Object.entries(raw.env)) {
+              envObj[k] = expandEnvAndHome(String(v ?? ''));
+            }
+          }
+          this.data.mcpServers[id] = {
+            id,
+            name: String(raw.name || id),
+            description: String(raw.description || ''),
+            transport: raw.transport === 'sse' || raw.transport === 'http' ? raw.transport : 'stdio',
+            command: String(raw.command || 'npx'),
+            args,
+            env: envObj,
+            url: typeof raw.url === 'string' ? raw.url : undefined,
+            tags: Array.isArray(raw.tags) ? raw.tags.map(String) : ['mcp'],
+            createdAt: this.data.mcpServers[id]?.createdAt || now,
+            updatedAt: now,
+          };
+          added += 1;
+        } catch {
+          // Skip invalid seed JSON
+        }
+      }
+      if (added > 0) this.save();
+    }
+    return added;
   }
 
   private saveRaw(schema: DatabaseSchema): void {

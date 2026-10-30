@@ -1,0 +1,19 @@
+{
+  "id": "sqlite-local",
+  "name": "本機 SQLite 資料庫 MCP",
+  "description": "提供本機 SQLite 資料庫結構查詢與離線資料分析能力",
+  "transport": "stdio",
+  "command": "npx",
+  "args": [
+    "-y",
+    "@modelcontextprotocol/server-sqlite",
+    "--db-path",
+    "~/local.db"
+  ],
+  "env": {},
+  "tags": [
+    "database",
+    "sqlite",
+    "stdio"
+  ]
+}

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import AdmZip from 'adm-zip';
 import { ZipArchive } from 'archiver';
 import type { Response } from 'express';
@@ -10,6 +11,61 @@ import {
 } from './types.js';
 import { expandHomePath } from './agentRegistry.js';
 import { LocalStore } from './store.js';
+
+const WINDOWS_CMD_WRAPPERS = new Set([
+  'npx',
+  'npm',
+  'pnpm',
+  'pnpx',
+  'yarn',
+  'corepack',
+]);
+
+/**
+ * Normalizes a stdio command on Windows so AI tools that spawn processes without a shell
+ * (e.g. Claude Code, Codex, Copilot) do not fail with `spawn npx ENOENT`.
+ */
+export function resolvePlatformMcpCommand(command: string): string {
+  const trimmed = (command || '').trim();
+  if (process.platform !== 'win32') return trimmed;
+  const lower = trimmed.toLowerCase();
+  if (WINDOWS_CMD_WRAPPERS.has(lower)) {
+    return `${trimmed}.cmd`;
+  }
+  return trimmed;
+}
+
+function unescapeTomlString(raw: string): string {
+  try {
+    return JSON.parse(`"${raw}"`);
+  } catch {
+    return raw.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+  }
+}
+
+function parseTomlStringArray(inner: string): string[] {
+  const results: string[] = [];
+  const regex = /"((?:[^"\\]|\\.)*)"|'([^']*)'/g;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(inner)) !== null) {
+    if (m[1] !== undefined) {
+      results.push(unescapeTomlString(m[1]));
+    } else if (m[2] !== undefined) {
+      results.push(m[2]);
+    }
+  }
+  return results;
+}
+
+export interface McpConnectionTestResult {
+  ok: boolean;
+  serverId: string;
+  transport: 'stdio' | 'sse' | 'http';
+  latencyMs: number;
+  serverInfo?: { name?: string; version?: string };
+  toolsCount?: number;
+  message: string;
+}
 
 export class McpManager {
   constructor(private store: LocalStore) {}
@@ -74,26 +130,43 @@ export class McpManager {
     }
   > {
     const result: Record<string, any> = {};
-    const sectionRegex = /\[mcp_servers\.([a-zA-Z0-9_-]+)\]([\s\S]*?)(?=\n\[|$)/g;
+    const normalized = tomlContent.replace(/\r\n/g, '\n');
+    const sectionRegex = /^\[mcp_servers\.([a-zA-Z0-9_-]+)\]\s*$([\s\S]*?)(?=^\[|$(?![\s\S]))/gm;
     let match: RegExpExecArray | null;
-    while ((match = sectionRegex.exec(tomlContent)) !== null) {
+    while ((match = sectionRegex.exec(normalized)) !== null) {
       const serverId = match[1];
       const body = match[2];
-      const cmdMatch = body.match(/command\s*=\s*"([^"]*)"/);
-      const urlMatch = body.match(/url\s*=\s*"([^"]*)"/);
+      const cmdMatch = body.match(/command\s*=\s*"((?:[^"\\]|\\.)*)"/);
+      const urlMatch = body.match(/url\s*=\s*"((?:[^"\\]|\\.)*)"/);
       const argsMatch = body.match(/args\s*=\s*\[([\s\S]*?)\]/);
-      let args: string[] = [];
-      if (argsMatch) {
-        args = Array.from(argsMatch[1].matchAll(/"([^"]*)"/g)).map((m) => m[1]);
-      }
+      const args = argsMatch ? parseTomlStringArray(argsMatch[1]) : [];
+
       result[serverId] = {
         transport: urlMatch ? 'http' : 'stdio',
-        command: cmdMatch ? cmdMatch[1] : '',
+        command: cmdMatch ? unescapeTomlString(cmdMatch[1]) : '',
         args,
         env: {},
-        url: urlMatch ? urlMatch[1] : undefined,
+        url: urlMatch ? unescapeTomlString(urlMatch[1]) : undefined,
       };
     }
+
+    const envSectionRegex = /^\[mcp_servers\.([a-zA-Z0-9_-]+)\.env\]\s*$([\s\S]*?)(?=^\[|$(?![\s\S]))/gm;
+    let envMatch: RegExpExecArray | null;
+    while ((envMatch = envSectionRegex.exec(normalized)) !== null) {
+      const serverId = envMatch[1];
+      const envBody = envMatch[2];
+      if (!result[serverId]) continue;
+      const envMap: Record<string, string> = {};
+      for (const line of envBody.split('\n')) {
+        const kv = line.match(/^\s*(?:"((?:[^"\\]|\\.)*)"|([A-Za-z0-9_.-]+))\s*=\s*"((?:[^"\\]|\\.)*)"/);
+        if (kv) {
+          const key = kv[1] !== undefined ? unescapeTomlString(kv[1]) : kv[2];
+          envMap[key] = unescapeTomlString(kv[3]);
+        }
+      }
+      result[serverId].env = envMap;
+    }
+
     return result;
   }
 
@@ -236,9 +309,12 @@ export class McpManager {
     const configPath = this.getAgentMcpConfigPath(agent);
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
 
+    const effectiveCommand = serverPayload
+      ? resolvePlatformMcpCommand(serverPayload.command)
+      : '';
+
     if (agent.mcpFormat === 'toml-codex' || configPath.endsWith('.toml')) {
       let toml = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf-8') : '';
-      // Remove this server and its nested tables without touching other settings.
       let inTargetSection = false;
       toml = toml
         .split(/\r?\n/)
@@ -259,7 +335,7 @@ export class McpManager {
         if (serverPayload.transport !== 'stdio' && serverPayload.url) {
           lines.push(`url = ${JSON.stringify(serverPayload.url)}`);
         } else {
-          lines.push(`command = ${JSON.stringify(serverPayload.command)}`);
+          lines.push(`command = ${JSON.stringify(effectiveCommand)}`);
           const formattedArgs = (serverPayload.args || []).map((a) => JSON.stringify(String(a))).join(', ');
           lines.push(`args = [${formattedArgs}]`);
           if (serverPayload.env && Object.keys(serverPayload.env).length > 0) {
@@ -298,7 +374,7 @@ export class McpManager {
           };
         } else {
           const entry: Record<string, any> = {
-            command: serverPayload.command,
+            command: effectiveCommand,
             args: serverPayload.args || [],
           };
           if (serverPayload.env && Object.keys(serverPayload.env).length > 0) {
@@ -312,6 +388,204 @@ export class McpManager {
 
       fs.writeFileSync(configPath, JSON.stringify(json, null, 2) + '\n', 'utf-8');
     }
+  }
+
+  /**
+   * Tests an MCP server connection by performing a real JSON-RPC 2.0 `initialize` handshake
+   * over stdio (or HTTP endpoint reachability check for http/sse servers).
+   */
+  public async testMcpServerConnection(serverId: string): Promise<McpConnectionTestResult> {
+    const srv = this.store.getDb().mcpServers[serverId];
+    if (!srv) {
+      throw new Error(`找不到 MCP 伺服器設定：${serverId}`);
+    }
+
+    const startTime = Date.now();
+
+    if (srv.transport !== 'stdio' && srv.url) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(srv.url, {
+          method: 'GET',
+          signal: controller.signal,
+          headers: { Accept: 'application/json, text/event-stream' },
+        }).finally(() => clearTimeout(timer));
+        const latencyMs = Date.now() - startTime;
+        return {
+          ok: res.status < 500,
+          serverId: srv.id,
+          transport: srv.transport,
+          latencyMs,
+          message: `HTTP 端點連線成功 (HTTP ${res.status}，耗時 ${latencyMs}ms)`,
+        };
+      } catch (err: any) {
+        return {
+          ok: false,
+          serverId: srv.id,
+          transport: srv.transport,
+          latencyMs: Date.now() - startTime,
+          message: `無法連線至端點 ${srv.url}：${err?.message || err}`,
+        };
+      }
+    }
+
+    // stdio transport test: spawn process and send JSON-RPC initialize
+    const cmd = resolvePlatformMcpCommand(srv.command);
+    const args = srv.args || [];
+    const mergedEnv = {
+      ...process.env,
+      ...(srv.env || {}),
+    };
+
+    return new Promise<McpConnectionTestResult>((resolve) => {
+      let settled = false;
+      let stdoutBuf = '';
+      let stderrBuf = '';
+
+      const finish = (result: McpConnectionTestResult, child?: ReturnType<typeof spawn>) => {
+        if (settled) return;
+        settled = true;
+        if (child && !child.killed) {
+          try {
+            child.kill();
+          } catch {
+            // Ignore cleanup failures after the connection test has settled.
+          }
+        }
+        resolve(result);
+      };
+
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawn(cmd, args, {
+          env: mergedEnv,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          shell: process.platform === 'win32' && cmd.toLowerCase().endsWith('.cmd'),
+          windowsHide: true,
+        });
+      } catch (spawnErr: any) {
+        finish({
+          ok: false,
+          serverId: srv.id,
+          transport: 'stdio',
+          latencyMs: Date.now() - startTime,
+          message: `無法啟動指令「${cmd}」：${spawnErr?.message || spawnErr}`,
+        });
+        return;
+      }
+
+      const timeout = setTimeout(() => {
+        const latencyMs = Date.now() - startTime;
+        // If process is still alive after 4.5s without crashing, report status
+        if (stderrBuf.toLowerCase().includes('error') || stderrBuf.toLowerCase().includes('fatal')) {
+          finish(
+            {
+              ok: false,
+              serverId: srv.id,
+              transport: 'stdio',
+              latencyMs,
+              message: `啟動逾時或錯誤：${stderrBuf.trim().slice(0, 240)}`,
+            },
+            child
+          );
+        } else {
+          finish(
+            {
+              ok: true,
+              serverId: srv.id,
+              transport: 'stdio',
+              latencyMs,
+              message: `程序「${cmd}」已成功啟動並持續運行 (${latencyMs}ms，首次下載套件可能需較長時間)`,
+            },
+            child
+          );
+        }
+      }, 4500);
+
+      child.on('error', (err: any) => {
+        clearTimeout(timeout);
+        finish(
+          {
+            ok: false,
+            serverId: srv.id,
+            transport: 'stdio',
+            latencyMs: Date.now() - startTime,
+            message: `執行檔「${cmd}」啟動失敗 (${err?.code || err?.message || err})`,
+          },
+          child
+        );
+      });
+
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderrBuf += chunk.toString('utf-8');
+      });
+
+      child.stdout?.on('data', (chunk: Buffer) => {
+        stdoutBuf += chunk.toString('utf-8');
+        for (const line of stdoutBuf.split(/\r?\n/)) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('{')) continue;
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (parsed.id === 1 && parsed.result) {
+              clearTimeout(timeout);
+              const latencyMs = Date.now() - startTime;
+              const serverInfo = parsed.result.serverInfo || {};
+              finish(
+                {
+                  ok: true,
+                  serverId: srv.id,
+                  transport: 'stdio',
+                  latencyMs,
+                  serverInfo,
+                  message: `MCP 握手成功！伺服器：${serverInfo.name || srv.id} ${
+                    serverInfo.version ? `v${serverInfo.version}` : ''
+                  } (${latencyMs}ms)`,
+                },
+                child
+              );
+              return;
+            }
+          } catch {
+            // Wait for complete JSON line
+          }
+        }
+      });
+
+      child.on('exit', (code) => {
+        clearTimeout(timeout);
+        const latencyMs = Date.now() - startTime;
+        if (code !== 0 && code !== null) {
+          finish({
+            ok: false,
+            serverId: srv.id,
+            transport: 'stdio',
+            latencyMs,
+            message: `程序異常退出 (Exit Code ${code})${
+              stderrBuf.trim() ? `：${stderrBuf.trim().slice(0, 220)}` : ''
+            }`,
+          });
+        }
+      });
+
+      // Send MCP JSON-RPC 2.0 initialize request
+      const initReq = JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'skills-manager-healthcheck', version: '2.0.0' },
+        },
+      });
+      try {
+        child.stdin?.write(initReq + '\n');
+      } catch {
+        // Process errors and the timeout report failed initialization.
+      }
+    });
   }
 
   public scanExternalMcpServers(agentKey?: string): ExternalMcpItem[] {

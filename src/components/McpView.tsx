@@ -14,6 +14,10 @@ import {
   Send,
   CheckSquare,
   Square,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
 } from 'lucide-react';
 import { api } from '../api';
 import {
@@ -37,6 +41,36 @@ export const McpView: React.FC<McpViewProps> = ({
   const { runWithMask, showErrorModal } = useFeedback();
   const [externalMcp, setExternalMcp] = useState<ExternalMcpItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<
+    Record<string, { ok: boolean; message: string; latencyMs: number }>
+  >({});
+
+  const handleTestMcp = async (srv: McpServerRecord) => {
+    setTestingId(srv.id);
+    try {
+      const res = await api.testMcpServer(srv.id);
+      setTestResults((prev) => ({
+        ...prev,
+        [srv.id]: {
+          ok: res.result.ok,
+          message: res.result.message,
+          latencyMs: res.result.latencyMs,
+        },
+      }));
+    } catch (err: any) {
+      setTestResults((prev) => ({
+        ...prev,
+        [srv.id]: {
+          ok: false,
+          message: err?.message || '測試失敗',
+          latencyMs: 0,
+        },
+      }));
+    } finally {
+      setTestingId(null);
+    }
+  };
 
   // Upsert Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -117,10 +151,10 @@ export const McpView: React.FC<McpViewProps> = ({
       }
     }
 
-    const args = argsText
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
+    // Parse arguments preserving quoted strings (e.g. "C:\\Program Files\\nodejs\\node.exe")
+    const args = (argsText.trim().match(/(?:[^\s"]+|"[^"]*")+/g) || []).map((token) =>
+      token.startsWith('"') && token.endsWith('"') ? token.slice(1, -1) : token
+    );
 
     await runWithMask(
       {
@@ -208,7 +242,7 @@ export const McpView: React.FC<McpViewProps> = ({
       setServerDesc(srv.description);
       setTransport(srv.transport);
       setCommand(srv.command);
-      setArgsText((srv.args || []).join(' '));
+      setArgsText((srv.args || []).map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' '));
       setEnvText(JSON.stringify(srv.env || {}, null, 2));
       setUrl(srv.url || 'http://127.0.0.1:3001/mcp');
     } else {
@@ -244,6 +278,30 @@ export const McpView: React.FC<McpViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                runWithMask(
+                  {
+                    loadingTitle: '正在從專案資料夾 (./skills, ./agents, ./mcp) 增量同步範例...',
+                    successTitle: '專案範例同步完成',
+                    successMessage: (res) =>
+                      `已同步專案範例資料夾：新增 ${res.addedSkills} 個技能、${res.addedSubagents} 個 Agent、${res.addedMcp} 個 MCP！`,
+                  },
+                  async () => {
+                    const res = await api.syncProjectSeeds(false);
+                    await onRefreshOverview();
+                    await loadExternal();
+                    return res;
+                  }
+                )
+              }
+              className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 transition"
+              title="將專案目錄下 ./skills、./agents、./mcp 中尚未載入的範例補齊至中央庫"
+            >
+              <RefreshCw className="h-3.5 w-3.5 text-teal-400" />
+              同步專案範例資料夾
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -406,6 +464,20 @@ export const McpView: React.FC<McpViewProps> = ({
                   >
                     <button
                       type="button"
+                      disabled={testingId === srv.id}
+                      onClick={() => handleTestMcp(srv)}
+                      className="flex items-center gap-1 rounded-lg border border-teal-500/40 bg-teal-500/10 px-2.5 py-1 text-[11px] font-medium text-teal-300 hover:bg-teal-500 hover:text-slate-950 disabled:opacity-50 transition"
+                      title="直接啟動並發送 MCP JSON-RPC initialize 測試連線"
+                    >
+                      {testingId === srv.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3 w-3" />
+                      )}
+                      測試連線
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => openEditModal(srv)}
                       className="flex items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1 text-[11px] text-slate-300 hover:bg-teal-500 hover:text-slate-950 transition"
                     >
@@ -443,6 +515,24 @@ export const McpView: React.FC<McpViewProps> = ({
                     ? `$ ${srv.command} ${(srv.args || []).join(' ')}`
                     : `${srv.transport.toUpperCase()}: ${srv.url}`}
                 </div>
+
+                {testResults[srv.id] && (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className={`rounded-xl border px-3 py-2 text-[11px] flex items-start gap-2 ${
+                      testResults[srv.id].ok
+                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+                        : 'border-rose-500/40 bg-rose-500/10 text-rose-200'
+                    }`}
+                  >
+                    {testResults[srv.id].ok ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="h-3.5 w-3.5 text-rose-400 shrink-0 mt-0.5" />
+                    )}
+                    <span className="break-all">{testResults[srv.id].message}</span>
+                  </div>
+                )}
               </div>
 
               <div

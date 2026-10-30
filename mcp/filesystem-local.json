@@ -1,0 +1,18 @@
+{
+  "id": "filesystem-local",
+  "name": "本機檔案系統 MCP (Filesystem)",
+  "description": "提供本機指定工作目錄的安全檔案讀寫與搜尋能力 (Stdio 本機程序)",
+  "transport": "stdio",
+  "command": "npx",
+  "args": [
+    "-y",
+    "@modelcontextprotocol/server-filesystem",
+    "~"
+  ],
+  "env": {},
+  "tags": [
+    "filesystem",
+    "local",
+    "stdio"
+  ]
+}

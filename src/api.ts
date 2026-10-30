@@ -602,6 +602,35 @@ export const api = {
     });
   },
 
+  testMcpServer: (serverId: string) =>
+    requestJson<{
+      ok: boolean;
+      result: {
+        ok: boolean;
+        serverId: string;
+        transport: 'stdio' | 'sse' | 'http';
+        latencyMs: number;
+        serverInfo?: { name?: string; version?: string };
+        message: string;
+      };
+    }>(`/api/mcp/${encodeURIComponent(serverId)}/test`, {
+      method: 'POST',
+    }),
+
+  syncProjectSeeds: (overwrite = false) =>
+    requestJson<{
+      ok: boolean;
+      addedSkills: number;
+      addedSubagents: number;
+      addedMcp: number;
+      skills: SkillRecord[];
+      subagents: SubagentRecord[];
+      mcpServers: McpServerRecord[];
+    }>('/api/seeds/sync', {
+      method: 'POST',
+      body: JSON.stringify({ overwrite }),
+    }),
+
   exportMcpZip: (ids: string[], filename?: string) => {
     const targetName =
       filename || `mcp-servers-export-${new Date().toISOString().slice(0, 10)}.zip`;

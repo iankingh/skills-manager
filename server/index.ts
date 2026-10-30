@@ -515,6 +515,31 @@ app.post('/api/mcp/import', upload.array('files', 10), (req: Request, res: Respo
   }
 });
 
+app.post('/api/mcp/:id/test', async (req: Request, res: Response) => {
+  try {
+    const result = await mcpManager.testMcpServerConnection(String(req.params.id));
+    res.json({ ok: true, result });
+  } catch (err: any) {
+    res.status(400).json({ ok: false, message: err.message });
+  }
+});
+
+app.post('/api/seeds/sync', (req: Request, res: Response) => {
+  try {
+    const overwrite = Boolean(req.body?.overwrite);
+    const synced = store.syncProjectSeeds(overwrite);
+    res.json({
+      ok: true,
+      ...synced,
+      skills: skillManager.listCentralSkills(),
+      subagents: subagentManager.listCentralSubagents(),
+      mcpServers: mcpManager.listCentralMcpServers(),
+    });
+  } catch (err: any) {
+    res.status(400).json({ ok: false, message: err.message });
+  }
+});
+
 app.post('/api/mcp/export-zip', async (req: Request, res: Response) => {
   try {
     const ids: string[] = Array.isArray(req.body.ids) ? req.body.ids : [];

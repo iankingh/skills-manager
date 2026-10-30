@@ -1,0 +1,21 @@
+{
+  "id": "gitlab",
+  "name": "GitLab MCP 伺服器 (Official / Self-Hosted)",
+  "description": "串接 GitLab / 自架 GitLab API，支援專案搜尋、Issue、Merge Request、分支與檔案操作",
+  "transport": "stdio",
+  "command": "npx",
+  "args": [
+    "-y",
+    "@modelcontextprotocol/server-gitlab"
+  ],
+  "env": {
+    "GITLAB_PERSONAL_ACCESS_TOKEN": "${GITLAB_PERSONAL_ACCESS_TOKEN}",
+    "GITLAB_API_URL": "https://gitlab.com/api/v4"
+  },
+  "tags": [
+    "gitlab",
+    "git",
+    "devops",
+    "stdio"
+  ]
+}

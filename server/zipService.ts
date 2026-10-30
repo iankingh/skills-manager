@@ -345,6 +345,10 @@ export class ZipAndFolderService {
     if (fs.existsSync(skillsDir)) {
       zip.addLocalFolder(skillsDir, 'skills');
     }
+    const agentsDir = this.store.getSubagentsDir();
+    if (fs.existsSync(agentsDir)) {
+      zip.addLocalFolder(agentsDir, 'agents');
+    }
     zip.addFile(
       'snapshot-meta.json',
       Buffer.from(
@@ -440,10 +444,52 @@ export class ZipAndFolderService {
     this.createLocalSnapshot(`還原 ${filename} 前的自動安全備份`);
 
     const buf = fs.readFileSync(filePath);
+    const zip = new AdmZip(buf);
+    const metaEntry = zip.getEntry('snapshot-meta.json');
+    let restoredAgentsCount = 0;
+    let restoredMcpCount = 0;
+
+    // 1. Restore agents/ (Subagents) files if present in snapshot
+    const agentsDir = this.store.getSubagentsDir();
+    fs.mkdirSync(agentsDir, { recursive: true });
+    for (const entry of zip.getEntries()) {
+      const entryName = entry.entryName.replace(/\\/g, '/');
+      if (!entry.isDirectory && entryName.startsWith('agents/') && entryName.endsWith('.md')) {
+        const baseName = path.basename(entryName);
+        if (!baseName.includes('..')) {
+          fs.writeFileSync(path.join(agentsDir, baseName), entry.getData());
+          restoredAgentsCount += 1;
+        }
+      }
+    }
+
+    // 2. Restore db metadata (subagents, mcpServers, presets) from snapshot-meta.json
+    if (metaEntry) {
+      try {
+        const parsed = JSON.parse(metaEntry.getData().toString('utf-8'));
+        const snapDb = parsed?.db;
+        const currentDb = this.store.getDb();
+        if (snapDb?.subagents && typeof snapDb.subagents === 'object') {
+          currentDb.subagents = { ...currentDb.subagents, ...snapDb.subagents };
+        }
+        if (snapDb?.mcpServers && typeof snapDb.mcpServers === 'object') {
+          restoredMcpCount = Object.keys(snapDb.mcpServers).length;
+          currentDb.mcpServers = { ...currentDb.mcpServers, ...snapDb.mcpServers };
+        }
+        if (Array.isArray(snapDb?.presets) && snapDb.presets.length > 0) {
+          currentDb.presets = snapDb.presets;
+        }
+        this.store.save();
+      } catch {
+        // Ignore meta parse error
+      }
+    }
+
+    // 3. Restore skills/
     const res = this.importFromZipBuffer(buf, filename, true);
     this.store.addActivityLog(
       'snapshot',
-      `已從快照「${filename}」還原 ${res.count} 個技能`
+      `已從快照「${filename}」完整還原 (${res.count} 個技能、${restoredAgentsCount} 個 Agent、${restoredMcpCount} 個 MCP)`
     );
     return { restoredCount: res.count };
   }
