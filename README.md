@@ -10,7 +10,7 @@
 
 ## 快速開始
 
-建議使用 Node.js `22.23.4` 以上的 22.x 版本、`24.22.1` 以上的 24.x 版本，或 `26.12.1` 以上的 26.x 版本。
+請使用 Node.js **26.x**，建議安裝最新的 26.x 穩定版。專案透過 [`.nvmrc`](.nvmrc) 指定版本；使用 nvm 時可執行 `nvm install` 與 `nvm use`。
 
 ```bash
 git clone https://github.com/iankingh/skills-manager.git
@@ -170,7 +170,9 @@ npm run cli -- snapshots create "部署前備份"
 
 主要程式位於 `src/`（React 介面）與 `server/`（管理核心、本機服務、CLI、系統匣）。預設後端連接埠為 `3847`，Vite 開發代理也指向此連接埠；若調整後端連接埠，請一併調整開發代理。
 
-[CI 工作流程](.github/workflows/ci.yml) 僅在 **`iankingh/skills-manager`** 執行，於推送至 `main` 或建立目標為 `main` 的 Pull Request 時觸發。使用 Node.js 22 在 Ubuntu、macOS、Windows 執行乾淨安裝、測試、Lint 與建置。流程權限為唯讀，Checkout 不保留憑證，也不包含自動提交、推送或發佈步驟。
+開發工具使用 Vite 8、Vitest 5 與 TypeScript 6.0。TypeScript 限定於 `~6.0.3`，因為目前最新版 `typescript-eslint` 的[正式支援範圍](https://typescript-eslint.io/users/dependency-versions/)為 `>=4.8.4 <6.1.0`；待支援 TypeScript 7 後再同步升級。
+
+[CI 工作流程](.github/workflows/ci.yml) 僅在 **`iankingh/skills-manager`** 執行，於推送至 `main` 或建立目標為 `main` 的 Pull Request 時觸發。從 `.nvmrc` 讀取 Node.js 26 版本，在 Ubuntu、macOS、Windows 執行乾淨安裝、測試、Lint 與建置。流程權限為唯讀，Checkout 不保留憑證，也不包含自動提交、推送或發佈步驟。
 
 ### GitHub 協作目標
 
