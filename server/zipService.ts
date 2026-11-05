@@ -9,6 +9,15 @@ import { LocalStore, parseSkillMarkdownMeta } from './store.js';
 import { SkillManager } from './skillManager.js';
 import { expandHomePath } from './agentRegistry.js';
 
+const MAX_UNCOMPRESSED_ZIP_BYTES = 250 * 1024 * 1024; // 250 MB safety limit against Zip Bombs
+
+function isPathInsideRoot(rootDir: string, targetPath: string): boolean {
+  const resolvedRoot = path.resolve(rootDir);
+  const resolvedTarget = path.resolve(targetPath);
+  const rel = path.relative(resolvedRoot, resolvedTarget);
+  return Boolean(rel && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+}
+
 export class ZipAndFolderService {
   constructor(
     private store: LocalStore,
@@ -29,6 +38,7 @@ export class ZipAndFolderService {
       const zip = new AdmZip(zipBuffer);
       const entries = zip.getEntries();
 
+      let totalExtractedBytes = 0;
       for (const entry of entries) {
         const entryName = entry.entryName.replace(/\\/g, '/');
         if (
@@ -40,15 +50,20 @@ export class ZipAndFolderService {
           continue;
         }
         const targetPath = path.resolve(tmpBase, entryName);
-        if (!targetPath.startsWith(path.resolve(tmpBase))) {
+        if (!isPathInsideRoot(tmpBase, targetPath)) {
           throw new Error(`偵測到不安全的壓縮檔路徑 (Path Traversal)：${entryName}`);
         }
 
         if (entry.isDirectory) {
           fs.mkdirSync(targetPath, { recursive: true });
         } else {
+          const data = entry.getData();
+          totalExtractedBytes += data.length;
+          if (totalExtractedBytes > MAX_UNCOMPRESSED_ZIP_BYTES) {
+            throw new Error('壓縮檔解壓後超過 250MB 安全上限，已中止解壓縮 (防止 Zip Bomb)');
+          }
           fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-          fs.writeFileSync(targetPath, entry.getData());
+          fs.writeFileSync(targetPath, data);
         }
       }
 
@@ -179,7 +194,7 @@ export class ZipAndFolderService {
         const cleanRel = file.relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
         if (cleanRel.includes('..') || cleanRel.endsWith('.DS_Store')) continue;
         const targetPath = path.resolve(tmpBase, cleanRel);
-        if (!targetPath.startsWith(path.resolve(tmpBase))) continue;
+        if (!isPathInsideRoot(tmpBase, targetPath)) continue;
         fs.mkdirSync(path.dirname(targetPath), { recursive: true });
         fs.writeFileSync(targetPath, file.buffer);
       }
@@ -485,8 +500,25 @@ export class ZipAndFolderService {
       }
     }
 
-    // 3. Restore skills/
-    const res = this.importFromZipBuffer(buf, filename, true);
+    // 3. Restore skills/ (extract only entries under `skills/` if snapshot format, otherwise full zip)
+    const hasSkillsPrefix = zip
+      .getEntries()
+      .some((e) => e.entryName.replace(/\\/g, '/').startsWith('skills/'));
+    let skillsZipBuf = buf;
+    if (hasSkillsPrefix) {
+      const skillsOnlyZip = new AdmZip();
+      for (const entry of zip.getEntries()) {
+        const normName = entry.entryName.replace(/\\/g, '/');
+        if (normName.startsWith('skills/') && !entry.isDirectory) {
+          const relSkillEntry = normName.slice('skills/'.length);
+          if (relSkillEntry) {
+            skillsOnlyZip.addFile(relSkillEntry, entry.getData());
+          }
+        }
+      }
+      skillsZipBuf = skillsOnlyZip.toBuffer();
+    }
+    const res = this.importFromZipBuffer(skillsZipBuf, filename, true);
     this.store.addActivityLog(
       'snapshot',
       `已從快照「${filename}」完整還原 (${res.count} 個技能、${restoredAgentsCount} 個 Agent、${restoredMcpCount} 個 MCP)`

@@ -62,10 +62,16 @@ export class LocalStore {
     fs.mkdirSync(path.join(baseDir, 'agents'), { recursive: true });
     fs.mkdirSync(path.join(baseDir, 'backups'), { recursive: true });
     this.dbPath = path.join(baseDir, 'db.json');
+    const isFirstInit = !fs.existsSync(this.dbPath);
     this.data = this.loadOrCreateDefault(baseDir);
-    this.ensureSeedSkill();
-    this.ensureSeedSubagents();
-    this.ensureSeedMcpServers();
+    if (isFirstInit) {
+      this.ensureSeedSkill();
+      this.ensureSeedSubagents();
+      this.ensureSeedMcpServers();
+    } else {
+      // Only incrementally seed newly added MCP configs (e.g. gitlab.json) if mcpServers doesn't have them yet
+      this.ensureSeedMcpServers(false);
+    }
   }
 
   private loadOrCreateDefault(baseDir: string): DatabaseSchema {
@@ -358,8 +364,13 @@ export class LocalStore {
 
   private saveRaw(schema: DatabaseSchema): void {
     const tmpPath = `${this.dbPath}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(schema, null, 2), 'utf-8');
+    fs.writeFileSync(tmpPath, JSON.stringify(schema, null, 2), { encoding: 'utf-8', mode: 0o600 });
     fs.renameSync(tmpPath, this.dbPath);
+    if (process.platform !== 'win32') {
+      try {
+        fs.chmodSync(this.dbPath, 0o600);
+      } catch {}
+    }
   }
 
   public save(): void {

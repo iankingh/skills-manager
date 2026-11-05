@@ -227,7 +227,13 @@ export const api = {
 
   updateAgent: (
     key: string,
-    payload: { enabled?: boolean; customGlobalPath?: string; name?: string }
+    payload: {
+      enabled?: boolean;
+      customGlobalPath?: string;
+      customAgentGlobalPath?: string;
+      customMcpGlobalPath?: string;
+      name?: string;
+    }
   ) =>
     requestJson<{ ok: boolean; agents: AgentConfig[] }>(
       `/api/agents/${encodeURIComponent(key)}`,

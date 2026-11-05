@@ -33,6 +33,15 @@ interface McpViewProps {
   onRefreshOverview: () => Promise<void>;
 }
 
+function maskSensitiveEnvValue(key: string, val: string): string {
+  if (!val) return '""';
+  if (/token|key|secret|password|auth|pat/i.test(key)) {
+    if (val.length <= 8) return '********';
+    return `${val.slice(0, 5)}••••${val.slice(-3)}`;
+  }
+  return val;
+}
+
 export const McpView: React.FC<McpViewProps> = ({
   mcpServers,
   agents,
@@ -515,6 +524,20 @@ export const McpView: React.FC<McpViewProps> = ({
                     ? `$ ${srv.command} ${(srv.args || []).join(' ')}`
                     : `${srv.transport.toUpperCase()}: ${srv.url}`}
                 </div>
+
+                {srv.env && Object.keys(srv.env).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {Object.entries(srv.env).map(([k, v]) => (
+                      <span
+                        key={k}
+                        className="rounded-md border border-slate-800 bg-slate-950/90 px-2 py-0.5 font-mono text-[10px] text-slate-400"
+                        title="敏感金鑰已自動遮罩保護，點擊「查看 / 編輯」可修改"
+                      >
+                        {k}={maskSensitiveEnvValue(k, String(v))}
+                      </span>
+                    ))}
+                  </div>
+                )}
 
                 {testResults[srv.id] && (
                   <div

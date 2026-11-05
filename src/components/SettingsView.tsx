@@ -7,6 +7,7 @@ import {
   Shield,
   Monitor,
   Sliders,
+  RefreshCw,
 } from 'lucide-react';
 import { api } from '../api';
 import { AgentConfig, AppSettings } from '../types';
@@ -32,6 +33,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [syncMode, setSyncMode] = useState<'symlink' | 'copy'>(settings.syncMode);
   const [trayEnabled, setTrayEnabled] = useState(settings.trayEnabled);
   const [editingPaths, setEditingPaths] = useState<Record<string, string>>({});
+  const [editingAgentPaths, setEditingAgentPaths] = useState<Record<string, string>>({});
+  const [editingMcpPaths, setEditingMcpPaths] = useState<Record<string, string>>({});
 
   // Custom agent inline form state
   const [customName, setCustomName] = useState('');
@@ -81,31 +84,46 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   const handleSaveAgentCustomPath = async (agent: AgentConfig, overridePath?: string) => {
-    const newPath =
+    const newSkillsPath =
       overridePath !== undefined
         ? overridePath
         : editingPaths[agent.key] !== undefined
         ? editingPaths[agent.key]
         : agent.customGlobalPath || agent.defaultGlobalPath;
-    if (!newPath.trim()) {
+    const newAgentsPath =
+      editingAgentPaths[agent.key] !== undefined
+        ? editingAgentPaths[agent.key]
+        : agent.customAgentGlobalPath || agent.defaultAgentGlobalPath;
+    const newMcpPath =
+      editingMcpPaths[agent.key] !== undefined
+        ? editingMcpPaths[agent.key]
+        : agent.customMcpGlobalPath || agent.defaultMcpGlobalPath;
+
+    if (!newSkillsPath.trim()) {
       showErrorModal('路徑不可為空', `請為 ${agent.name} 輸入有效的個人資料夾路徑。`);
       return;
     }
 
     await runWithMask(
       {
-        loadingTitle: `正在更新「${agent.name}」的個人資料夾路徑...`,
-        loadingSubtitle: `新路徑：${newPath.trim()}`,
-        successTitle: '個人資料夾路徑已更新',
-        successMessage: `已成功將「${agent.name}」的 Skills 個人資料夾路徑更新為：`,
-        successDetails: newPath.trim(),
-        errorTitle: '更新個人資料夾路徑失敗',
+        loadingTitle: `正在更新「${agent.name}」的個人資料夾與設定檔路徑...`,
+        loadingSubtitle: `Skills: ${newSkillsPath.trim()} | Agents: ${newAgentsPath.trim()} | MCP: ${newMcpPath.trim()}`,
+        successTitle: '工具路徑已更新',
+        successMessage: `已成功更新「${agent.name}」的 Skills、AI Agents 與 MCP 個人路徑！`,
+        successDetails: `Skills: ${newSkillsPath.trim()}
+Agents: ${newAgentsPath.trim()}
+MCP: ${newMcpPath.trim()}`,
+        errorTitle: '更新路徑失敗',
       },
       async () => {
         await api.updateAgent(agent.key, {
-          customGlobalPath: newPath.trim(),
+          customGlobalPath: newSkillsPath.trim(),
+          customAgentGlobalPath: newAgentsPath.trim(),
+          customMcpGlobalPath: newMcpPath.trim(),
         });
-        setEditingPaths((prev) => ({ ...prev, [agent.key]: newPath.trim() }));
+        setEditingPaths((prev) => ({ ...prev, [agent.key]: newSkillsPath.trim() }));
+        setEditingAgentPaths((prev) => ({ ...prev, [agent.key]: newAgentsPath.trim() }));
+        setEditingMcpPaths((prev) => ({ ...prev, [agent.key]: newMcpPath.trim() }));
         await onRefresh();
       }
     );
@@ -417,10 +435,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               editingPaths[agent.key] !== undefined
                 ? editingPaths[agent.key]
                 : agent.customGlobalPath || agent.defaultGlobalPath;
+            const agentPathVal =
+              editingAgentPaths[agent.key] !== undefined
+                ? editingAgentPaths[agent.key]
+                : agent.customAgentGlobalPath || agent.defaultAgentGlobalPath;
+            const mcpPathVal =
+              editingMcpPaths[agent.key] !== undefined
+                ? editingMcpPaths[agent.key]
+                : agent.customMcpGlobalPath || agent.defaultMcpGlobalPath;
             return (
               <div
                 key={agent.key}
-                className="flex flex-wrap items-center justify-between gap-3 px-6 py-3.5 hover:bg-slate-800/30 text-xs"
+                className="flex flex-wrap items-start justify-between gap-4 px-6 py-4 hover:bg-slate-800/30 text-xs"
               >
                 <div className="flex items-center gap-3 min-w-[240px]">
                   <input
@@ -471,40 +497,83 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </div>
                 </div>
 
-                <div className="flex flex-1 items-center gap-2 max-w-xl">
-                  <input
-                    type="text"
-                    value={pathVal}
-                    onChange={(e) =>
-                      setEditingPaths({ ...editingPaths, [agent.key]: e.target.value })
-                    }
-                    className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs font-mono text-slate-200 focus:border-teal-500 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleSaveAgentCustomPath(agent)}
-                    className="rounded-xl bg-slate-800 px-3 py-1.5 text-xs text-teal-300 hover:bg-teal-500 hover:text-slate-950 transition"
-                  >
-                    更新路徑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenFolder(agent.resolvedPath)}
-                    className="rounded-xl bg-slate-800 p-1.5 text-slate-300 hover:text-teal-300"
-                    title="在系統檔案總管開啟此個人資料夾"
-                  >
-                    <FolderOpen className="h-3.5 w-3.5" />
-                  </button>
-                  {agent.isCustom && (
+                <div className="flex-1 max-w-xl space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-20 shrink-0 text-[11px] font-medium text-teal-300">Skills 路徑</span>
+                    <input
+                      type="text"
+                      value={pathVal}
+                      onChange={(e) =>
+                        setEditingPaths({ ...editingPaths, [agent.key]: e.target.value })
+                      }
+                      className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs font-mono text-slate-200 focus:border-teal-500 focus:outline-none"
+                    />
                     <button
                       type="button"
-                      onClick={() => handleRemoveCustomAgent(agent)}
-                      className="rounded-xl bg-rose-500/10 p-1.5 text-rose-300 hover:bg-rose-500/20"
-                      title="刪除自訂工具"
+                      onClick={() => handleOpenFolder(agent.resolvedPath)}
+                      className="rounded-xl bg-slate-800 p-1.5 text-slate-300 hover:text-teal-300"
+                      title="開啟 Skills 個人資料夾"
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <FolderOpen className="h-3.5 w-3.5" />
                     </button>
-                  )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-20 shrink-0 text-[11px] font-medium text-violet-300">Agents 路徑</span>
+                    <input
+                      type="text"
+                      value={agentPathVal}
+                      onChange={(e) =>
+                        setEditingAgentPaths({ ...editingAgentPaths, [agent.key]: e.target.value })
+                      }
+                      className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs font-mono text-slate-200 focus:border-teal-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleOpenFolder(agent.resolvedAgentPath || agentPathVal)}
+                      className="rounded-xl bg-slate-800 p-1.5 text-slate-300 hover:text-teal-300"
+                      title="開啟 AI Agents 個人資料夾"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-20 shrink-0 text-[11px] font-medium text-emerald-300">MCP 設定檔</span>
+                    <input
+                      type="text"
+                      value={mcpPathVal}
+                      onChange={(e) =>
+                        setEditingMcpPaths({ ...editingMcpPaths, [agent.key]: e.target.value })
+                      }
+                      className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs font-mono text-slate-200 focus:border-teal-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleOpenFolder(agent.resolvedMcpPath || mcpPathVal)}
+                      className="rounded-xl bg-slate-800 p-1.5 text-slate-300 hover:text-teal-300"
+                      title="開啟 MCP 設定檔所在資料夾"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveAgentCustomPath(agent)}
+                      className="rounded-xl bg-slate-800 px-3.5 py-1.5 text-xs font-semibold text-teal-300 hover:bg-teal-500 hover:text-slate-950 transition"
+                    >
+                      儲存此工具的 3 項路徑
+                    </button>
+                    {agent.isCustom && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCustomAgent(agent)}
+                        className="rounded-xl bg-rose-500/10 p-1.5 text-rose-300 hover:bg-rose-500/20"
+                        title="刪除自訂工具"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );

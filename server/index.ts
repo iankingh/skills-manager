@@ -652,6 +652,39 @@ app.post('/api/presets', (req: Request, res: Response) => {
   }
 });
 
+app.put('/api/presets/:id', (req: Request, res: Response) => {
+  try {
+    const presetId = String(req.params.id);
+    const { name, description, skillIds } = req.body;
+    const db = store.getDb();
+    const target = db.presets.find((p) => p.id === presetId);
+    if (!target) {
+      res.status(404).json({ ok: false, message: `找不到場景組合：${presetId}` });
+      return;
+    }
+    if (typeof name === 'string' && name.trim()) target.name = name.trim();
+    if (typeof description === 'string') target.description = description.trim();
+    if (Array.isArray(skillIds)) target.skillIds = skillIds.map(String);
+    target.updatedAt = new Date().toISOString();
+    store.save();
+    res.json({ ok: true, presets: db.presets });
+  } catch (err: any) {
+    res.status(400).json({ ok: false, message: err.message });
+  }
+});
+
+app.delete('/api/presets/:id', (req: Request, res: Response) => {
+  try {
+    const presetId = String(req.params.id);
+    const db = store.getDb();
+    db.presets = db.presets.filter((p) => p.id !== presetId);
+    store.save();
+    res.json({ ok: true, presets: db.presets });
+  } catch (err: any) {
+    res.status(400).json({ ok: false, message: err.message });
+  }
+});
+
 app.post('/api/presets/:id/apply', (req: Request, res: Response) => {
   try {
     const deploy = req.body.deploy !== false;
@@ -752,11 +785,24 @@ app.get('/api/fs/browse', (req: Request, res: Response) => {
         return a.name.localeCompare(b.name);
       });
 
+    const drives: string[] = [];
+    if (process.platform === 'win32') {
+      for (let code = 67; code <= 90; code++) {
+        const driveRoot = `${String.fromCharCode(code)}:\\`;
+        try {
+          if (fs.existsSync(driveRoot)) drives.push(driveRoot);
+        } catch {}
+      }
+    } else {
+      drives.push('/', os.homedir());
+    }
+
     res.json({
       ok: true,
       currentDir: targetDir,
       compactCurrentDir: compactHomePath(targetDir),
       parentDir: parentDir !== targetDir ? parentDir : null,
+      drives,
       directories: entries,
     });
   } catch (err: any) {

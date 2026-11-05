@@ -24,26 +24,38 @@ function getPlatformTrayIconBase64(): string {
 
 export function openUrlInLocalBrowser(url: string): void {
   try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return;
+    }
+    const safeUrl = parsed.toString();
     if (process.platform === 'darwin') {
-      execFile('open', [url]);
+      execFile('open', [safeUrl]);
     } else if (process.platform === 'win32') {
-      execFile('cmd.exe', ['/c', 'start', '', url]);
+      execFile('explorer.exe', [safeUrl]);
     } else {
-      execFile('xdg-open', [url]);
+      execFile('xdg-open', [safeUrl]);
     }
   } catch {
-    // Ignore on headless machines
+    // Ignore on headless machines or invalid URLs
   }
 }
 
 export function openFolderInOSFileManager(folderPath: string): void {
   try {
+    const resolved = path.resolve(folderPath);
+    if (!fs.existsSync(resolved)) return;
+    const stat = fs.statSync(resolved);
+    // Security guard: strictly open directories only, never execute a file via explorer/open
+    const safeDir = stat.isDirectory() ? resolved : path.dirname(resolved);
+    if (!fs.existsSync(safeDir) || !fs.statSync(safeDir).isDirectory()) return;
+
     if (process.platform === 'darwin') {
-      execFile('open', [folderPath]);
+      execFile('open', [safeDir]);
     } else if (process.platform === 'win32') {
-      execFile('explorer.exe', [folderPath]);
+      execFile('explorer.exe', [safeDir]);
     } else {
-      execFile('xdg-open', [folderPath]);
+      execFile('xdg-open', [safeDir]);
     }
   } catch {
     // Ignore on headless machines

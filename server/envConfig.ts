@@ -34,6 +34,7 @@ export function loadDotEnv(): void {
   if (!fs.existsSync(envPath) && fs.existsSync(envExamplePath)) {
     try {
       fs.copyFileSync(envExamplePath, envPath);
+      if (process.platform !== 'win32') { try { fs.chmodSync(envPath, 0o600); } catch {} }
     } catch {
       // Ignore if directory is read-only
     }

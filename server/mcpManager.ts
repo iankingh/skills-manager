@@ -349,7 +349,7 @@ export class McpManager {
       } else if (toml) {
         toml += '\n';
       }
-      fs.writeFileSync(configPath, toml, 'utf-8');
+      fs.writeFileSync(configPath, toml, { encoding: 'utf-8', mode: 0o600 });
     } else {
       let json: Record<string, any> = {};
       if (fs.existsSync(configPath)) {
@@ -386,7 +386,7 @@ export class McpManager {
         delete json.mcpServers[serverId];
       }
 
-      fs.writeFileSync(configPath, JSON.stringify(json, null, 2) + '\n', 'utf-8');
+      fs.writeFileSync(configPath, JSON.stringify(json, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
     }
   }
 
@@ -404,6 +404,16 @@ export class McpManager {
 
     if (srv.transport !== 'stdio' && srv.url) {
       try {
+        const parsedUrl = new URL(srv.url);
+        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+          return {
+            ok: false,
+            serverId: srv.id,
+            transport: srv.transport,
+            latencyMs: 0,
+            message: `不安全的 URL 協定 (${parsedUrl.protocol})，僅允許 http: 或 https:`,
+          };
+        }
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 5000);
         const res = await fetch(srv.url, {
@@ -449,19 +459,26 @@ export class McpManager {
         if (child && !child.killed) {
           try {
             child.kill();
-          } catch {
-            // Ignore cleanup failures after the connection test has settled.
-          }
+          } catch {}
         }
         resolve(result);
       };
 
       let child: ReturnType<typeof spawn>;
       try {
-        child = spawn(cmd, args, {
+        if (/[;&|`$<>\r\n\0]/.test(cmd)) {
+          throw new Error('執行指令包含不安全的 Shell 特殊字元');
+        }
+        const isWinCmd = process.platform === 'win32' && cmd.toLowerCase().endsWith('.cmd');
+        // On Windows, invoke cmd.exe /d /s /c with escaped arguments or direct binary to prevent shell injection
+        const spawnFile = isWinCmd ? (process.env.ComSpec || 'cmd.exe') : cmd;
+        const spawnArgs = isWinCmd
+          ? ['/d', '/s', '/c', `"${cmd}" ${args.map((a) => `"${String(a).replace(/"/g, '""')}"`).join(' ')}`]
+          : args;
+        child = spawn(spawnFile, spawnArgs, {
           env: mergedEnv,
           stdio: ['pipe', 'pipe', 'pipe'],
-          shell: process.platform === 'win32' && cmd.toLowerCase().endsWith('.cmd'),
+          windowsVerbatimArguments: isWinCmd,
           windowsHide: true,
         });
       } catch (spawnErr: any) {
@@ -582,9 +599,7 @@ export class McpManager {
       });
       try {
         child.stdin?.write(initReq + '\n');
-      } catch {
-        // Process errors and the timeout report failed initialization.
-      }
+      } catch {}
     });
   }
 
@@ -677,7 +692,7 @@ export class McpManager {
       }
     }
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, content, 'utf-8');
+    fs.writeFileSync(configPath, content, { encoding: 'utf-8', mode: 0o600 });
     this.store.addActivityLog('mcp-sync', `已直接更新 ${agent.name} 的 MCP 設定檔 (${configPath})`);
   }
 

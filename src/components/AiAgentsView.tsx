@@ -806,7 +806,7 @@ export const AiAgentsView: React.FC<AiAgentsViewProps> = ({
               {importTab === 'path' && (
                 <div className="space-y-3 text-xs">
                   <label className="block text-slate-300">
-                    輸入本機 AI Agent 檔案或資料夾路徑 (例如 ~/.claude/agents)：
+                    輸入單一 AI Agent 檔案路徑 (例如 <code className="text-teal-300">D:\agents\my-agent.md</code>) 或整個資料夾路徑 (輸入資料夾會匯入該資料夾內所有 .md 代理檔)：
                   </label>
                   <div className="flex gap-2">
                     <input

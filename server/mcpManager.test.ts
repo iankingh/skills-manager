@@ -54,4 +54,25 @@ describe('MCP config changes', () => {
     expect(saved).toContain('"API_KEY" = "local"');
     expect(saved).not.toContain('OLD = "1"');
   });
+
+  it('parses Windows paths and env sections from Codex TOML with CRLF line endings', () => {
+    const crlfToml = [
+      '[mcp_servers.gitlab]',
+      'command = "C:\\\\Program Files\\\\nodejs\\\\npx.cmd"',
+      'args = ["-y", "@modelcontextprotocol/server-gitlab"]',
+      '',
+      '[mcp_servers.gitlab.env]',
+      '"GITLAB_PERSONAL_ACCESS_TOKEN" = "glpat-test-123"',
+      '"GITLAB_API_URL" = "https://gitlab.example.com/api/v4"',
+      '',
+    ].join('\r\n');
+    fs.writeFileSync(tomlPath, crlfToml, 'utf-8');
+    const codexAgent = store.getAllAgents().find((a) => a.key === 'codex')!;
+    const parsed = manager.readMcpServersFromAgentConfig(codexAgent);
+    expect(parsed.gitlab).toBeDefined();
+    expect(parsed.gitlab.command).toBe('C:\\Program Files\\nodejs\\npx.cmd');
+    expect(parsed.gitlab.args).toEqual(['-y', '@modelcontextprotocol/server-gitlab']);
+    expect(parsed.gitlab.env.GITLAB_PERSONAL_ACCESS_TOKEN).toBe('glpat-test-123');
+    expect(parsed.gitlab.env.GITLAB_API_URL).toBe('https://gitlab.example.com/api/v4');
+  });
 });

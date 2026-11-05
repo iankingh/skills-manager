@@ -494,13 +494,33 @@ ${
     return this.listCentralSubagents();
   }
 
+  private isIgnoredNonAgentFile(fileName: string): boolean {
+    const lower = fileName.toLowerCase();
+    if (lower.startsWith('.')) return true; // Rejects .DS_Store and macOS `._*` AppleDouble files
+    const ignoredNames = new Set([
+      'readme.md',
+      'skill.md',
+      'changelog.md',
+      'changes.md',
+      'history.md',
+      'license.md',
+      'contributing.md',
+      'code_of_conduct.md',
+      'security.md',
+      'claude.md',
+      'agents.md',
+      'gemini.md',
+    ]);
+    return ignoredNames.has(lower);
+  }
+
   public importSubagentsFromZipBuffer(
     zipBuffer: Buffer,
     originalFilename: string
   ): { count: number; subagents: SubagentRecord[] } {
     const zip = new AdmZip(zipBuffer);
     const entries = zip.getEntries();
-    let count = 0;
+    const importedIds = new Set<string>();
 
     for (const entry of entries) {
       if (entry.isDirectory) continue;
@@ -508,26 +528,34 @@ ${
       if (
         entryName.includes('..') ||
         entryName.startsWith('__MACOSX') ||
+        entryName.includes('/__MACOSX/') ||
+        entryName.includes('/.git/') ||
+        entryName.includes('/node_modules/') ||
         (!entryName.endsWith('.md') && !entryName.endsWith('.toml'))
       ) {
         continue;
       }
       const baseName = path.basename(entryName);
-      if (baseName.toLowerCase() === 'skill.md' || baseName.toLowerCase() === 'readme.md') {
+      if (this.isIgnoredNonAgentFile(baseName)) {
         continue;
       }
-      const destPath = path.join(this.store.getSubagentsDir(), baseName);
+      const id = baseName.replace(/\.(agent\.md|md|toml)$/i, '');
+      if (importedIds.has(id)) {
+        continue;
+      }
+      const destPath = directChildPath(this.store.getSubagentsDir(), `${id}.md`);
       fs.writeFileSync(destPath, entry.getData());
-      count += 1;
+      importedIds.add(id);
     }
 
+    const count = importedIds.size;
     if (count === 0) {
-      throw new Error('壓縮檔內未找到任何 .md 或 .toml 格式的 AI Agent 檔案');
+      throw new Error('壓縮檔內未找到任何有效的 .md 或 .toml AI Agent 角色定義檔');
     }
 
     this.store.addActivityLog(
       'import-zip',
-      `已從壓縮檔「${originalFilename}」匯入 ${count} 個 AI Agent`
+      `已從壓縮檔「${originalFilename}」匯入 ${count} 個 AI Agent (${Array.from(importedIds).join(', ')})`
     );
     return { count, subagents: this.listCentralSubagents() };
   }
@@ -542,32 +570,42 @@ ${
     }
 
     const stat = fs.statSync(resolved);
-    let count = 0;
+    const importedIds = new Set<string>();
+
     if (stat.isFile()) {
       const base = path.basename(resolved);
-      fs.copyFileSync(resolved, path.join(this.store.getSubagentsDir(), base));
-      count = 1;
+      if (!base.endsWith('.md') && !base.endsWith('.toml')) {
+        throw new Error('指定的檔案必須是 .md 或 .toml 格式的 AI Agent 定義檔');
+      }
+      const id = base.replace(/\.(agent\.md|md|toml)$/i, '');
+      const destPath = directChildPath(this.store.getSubagentsDir(), `${id}.md`);
+      fs.copyFileSync(resolved, destPath);
+      importedIds.add(id);
     } else if (stat.isDirectory()) {
       for (const entry of fs.readdirSync(resolved, { withFileTypes: true })) {
         if (
           entry.isFile() &&
-          !entry.name.startsWith('.') &&
+          !this.isIgnoredNonAgentFile(entry.name) &&
           (entry.name.endsWith('.md') || entry.name.endsWith('.toml'))
         ) {
-          fs.copyFileSync(
-            path.join(resolved, entry.name),
-            path.join(this.store.getSubagentsDir(), entry.name)
-          );
-          count += 1;
+          const id = entry.name.replace(/\.(agent\.md|md|toml)$/i, '');
+          if (importedIds.has(id)) continue;
+          const destPath = directChildPath(this.store.getSubagentsDir(), `${id}.md`);
+          fs.copyFileSync(path.join(resolved, entry.name), destPath);
+          importedIds.add(id);
         }
       }
     }
 
+    const count = importedIds.size;
     if (count === 0) {
-      throw new Error('該路徑下未找到任何 .md 或 .toml 格式的 AI Agent 檔案');
+      throw new Error('該路徑下未找到任何有效的 .md 或 .toml AI Agent 角色定義檔 (已自動略過 README.md 等說明檔)');
     }
 
-    this.store.addActivityLog('import-folder', `已從「${resolved}」匯入 ${count} 個 AI Agent`);
+    this.store.addActivityLog(
+      'import-folder',
+      `已從「${resolved}」匯入 ${count} 個 AI Agent (${Array.from(importedIds).join(', ')})`
+    );
     return { count, subagents: this.listCentralSubagents() };
   }
 

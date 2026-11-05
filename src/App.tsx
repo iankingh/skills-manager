@@ -691,7 +691,18 @@ export function App() {
               {activeNav === 'settings' && 'AI Skills / AI Agents / MCP 路徑對照與系統設定'}
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              統一管理 GitHub Copilot、Claude Code、OpenAI Codex 在個人／全域目錄下的 Skills
+              {activeNav === 'library' &&
+                '統一管理 GitHub Copilot、Claude Code、OpenAI Codex 在個人／全域目錄下的 Skills'}
+              {activeNav === 'subagents' &&
+                '統一管理與部署各 AI 工具的專屬角色代理 (.md / .agent.md)'}
+              {activeNav === 'mcp' &&
+                '統一管理、測試並掛載 GitHub Copilot、Claude Code 與 OpenAI Codex 的本機 MCP 伺服器'}
+              {activeNav === 'workspace' &&
+                '檢視各 AI 工具個人資料夾中的實際檔案狀態，並支援將外部項目一鍵納管回中央庫'}
+              {activeNav === 'backups' &&
+                '建立與還原包含 Skills、AI Agents 與 MCP 設定的完整本機離線備份快照'}
+              {activeNav === 'settings' &&
+                '管理中央儲存庫位置、環境變數預設路徑、同步模式與 System Tray 系統匣設定'}
             </p>
           </div>
 
@@ -700,60 +711,64 @@ export function App() {
               type="button"
               onClick={handleManualFullScan}
               className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 transition"
-              title="重新掃描本機技能庫與所有工具資料夾"
+              title="重新掃描本機中央庫與所有 AI 工具資料夾"
             >
               <RefreshCw className="h-3.5 w-3.5" />
               重新掃描
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                const ids =
-                  selectedSkillIds.size > 0
-                    ? Array.from(selectedSkillIds)
-                    : filteredSkills.map((s) => s.id);
-                openTargetDeployPicker(
-                  ids,
-                  selectedSkillIds.size > 0
-                    ? `將已勾選的 ${selectedSkillIds.size} 個技能部署至指定 AI 工具`
-                    : `將列表中的 ${ids.length} 個技能部署至指定 AI 工具`
-                );
-              }}
-              className="flex items-center gap-1.5 rounded-xl border border-teal-500/40 bg-teal-500/15 px-3.5 py-2 text-xs font-semibold text-teal-200 hover:bg-teal-500/25 transition"
-            >
-              <Send className="h-3.5 w-3.5 text-teal-400" />
-              {selectedSkillIds.size > 0
-                ? `部署已選 (${selectedSkillIds.size}) 至指定工具...`
-                : '部署至指定 AI 工具...'}
-            </button>
+            {activeNav === 'library' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ids =
+                      selectedSkillIds.size > 0
+                        ? Array.from(selectedSkillIds)
+                        : filteredSkills.map((s) => s.id);
+                    openTargetDeployPicker(
+                      ids,
+                      selectedSkillIds.size > 0
+                        ? `將已勾選的 ${selectedSkillIds.size} 個技能部署至指定 AI 工具`
+                        : `將列表中的 ${ids.length} 個技能部署至指定 AI 工具`
+                    );
+                  }}
+                  className="flex items-center gap-1.5 rounded-xl border border-teal-500/40 bg-teal-500/15 px-3.5 py-2 text-xs font-semibold text-teal-200 hover:bg-teal-500/25 transition"
+                >
+                  <Send className="h-3.5 w-3.5 text-teal-400" />
+                  {selectedSkillIds.size > 0
+                    ? `部署已選 (${selectedSkillIds.size}) 至指定工具...`
+                    : '部署至指定 AI 工具...'}
+                </button>
 
-            <button
-              type="button"
-              onClick={() =>
-                handleExportZipBundle(
-                  selectedSkillIds.size > 0 ? Array.from(selectedSkillIds) : [],
-                  selectedSkillIds.size > 0
-                    ? `selected-skills-${selectedSkillIds.size}.zip`
-                    : `all-skills-${new Date().toISOString().slice(0, 10)}.zip`
-                )
-              }
-              className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition"
-            >
-              <Download className="h-3.5 w-3.5 text-teal-400" />
-              {selectedSkillIds.size > 0
-                ? `下載已選 (${selectedSkillIds.size}) ZIP`
-                : '下載全部 Skills (.zip)'}
-            </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleExportZipBundle(
+                      selectedSkillIds.size > 0 ? Array.from(selectedSkillIds) : [],
+                      selectedSkillIds.size > 0
+                        ? `selected-skills-${selectedSkillIds.size}.zip`
+                        : `all-skills-${new Date().toISOString().slice(0, 10)}.zip`
+                    )
+                  }
+                  className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition"
+                >
+                  <Download className="h-3.5 w-3.5 text-teal-400" />
+                  {selectedSkillIds.size > 0
+                    ? `下載已選 (${selectedSkillIds.size}) ZIP`
+                    : '下載全部 Skills (.zip)'}
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setImportModalOpen(true)}
-              className="flex items-center gap-1.5 rounded-xl bg-teal-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-teal-400 shadow-lg shadow-teal-500/15 transition"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              匯入 ZIP / 本機資料夾
-            </button>
+                <button
+                  type="button"
+                  onClick={() => setImportModalOpen(true)}
+                  className="flex items-center gap-1.5 rounded-xl bg-teal-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-teal-400 shadow-lg shadow-teal-500/15 transition"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  匯入 Skills (ZIP / 資料夾)
+                </button>
+              </>
+            )}
           </div>
         </header>
 
@@ -844,6 +859,22 @@ export function App() {
                       >
                         <Download className="h-3 w-3" />
                       </button>
+                      {preset.id !== 'preset-default' && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!window.confirm(`確定要刪除場景「${preset.name}」嗎？`)) return;
+                            const res = await api.deletePreset(preset.id);
+                            setOverview((prev) =>
+                              prev ? { ...prev, presets: res.presets } : prev
+                            );
+                          }}
+                          className="text-slate-500 hover:text-rose-400"
+                          title="刪除此場景組合"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
